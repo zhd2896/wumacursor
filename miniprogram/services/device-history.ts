@@ -45,7 +45,8 @@ function validEntry(value: unknown): value is DeviceHistoryEntry {
     row.mode === 'ai' || row.mode === 'online';
   const validWinner = row.winner === null || row.winner === 'A' || row.winner === 'B';
   const validReason = row.winnerReason === null || row.winnerReason === 'CAPTURE_ALL' ||
-    row.winnerReason === 'TEMPLE_TRAP' || row.winnerReason === 'LONE_PIECE_IMMOBILIZED';
+    row.winnerReason === 'TEMPLE_TRAP' || row.winnerReason === 'LONE_PIECE_IMMOBILIZED' ||
+    row.winnerReason === 'RESIGN';
   const validState = row.mode !== 'local' || (!!row.localState &&
     typeof row.localState.board?.occupancy === 'object' &&
     row.localState.game_status === row.status);

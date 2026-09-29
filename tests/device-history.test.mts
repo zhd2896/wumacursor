@@ -91,3 +91,19 @@ test('stores the terminal result of an actual legal game without inventing a win
   assert.equal(saved?.status, 'FINISHED');
   assert.equal(saved?.turns, sequence.length);
 });
+
+test('device history accepts resign results', () => {
+  const values = new Map<string, unknown>();
+  const storage = {
+    get: (key: string) => values.get(key),
+    set: (key: string, value: unknown) => { values.set(key, value); },
+    remove: (key: string) => { values.delete(key); },
+  };
+  const state = { ...createInitialGameState(),
+    game_status: 'FINISHED' as const, winner: 'B' as const, winner_reason: 'RESIGN' as const };
+  createDeviceHistoryStore(storage).record({ id: 'resign-1', mode: 'local', state, turns: 3 });
+  const saved = createDeviceHistoryStore(storage).get('resign-1');
+  assert.equal(saved?.winnerReason, 'RESIGN');
+  assert.equal(saved?.status, 'FINISHED');
+  assert.equal(createDeviceHistoryStore(storage).list().length, 1);
+});

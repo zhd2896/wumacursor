@@ -384,17 +384,16 @@ Page({
       if (!session || session.gameState.game_status === 'FINISHED') return;
       const resigned = resignLocalGame(session, session.gameState.current_player);
       if (!resigned) return;
-      if (this.data.localGameId &&
-          !this.saveHistory(this.data.localGameId, 'local', resigned.gameState,
-            this.data.localTurns, resigned.lastMove)) {
-        return;
-      }
       this.setData({
         localSession: resigned,
         board: getLocalBoardView(resigned),
         localHintView: null,
         localHintLevel: 0,
       });
+      if (this.data.localGameId) {
+        this.saveHistory(this.data.localGameId, 'local', resigned.gameState,
+          this.data.localTurns, resigned.lastMove);
+      }
       wx.showToast({ title: '已认输', icon: 'none' });
       return;
     }
