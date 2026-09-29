@@ -23,6 +23,7 @@ const reasonMessages: Readonly<Record<NonNullable<GameState['winner_reason']>, s
   CAPTURE_ALL: '对方棋子已全部被吃',
   TEMPLE_TRAP: '对方孤棋被困于庙宇',
   LONE_PIECE_IMMOBILIZED: '对方孤棋无路可走',
+  RESIGN: '对方认输',
 };
 
 export function mapGameStateToView(

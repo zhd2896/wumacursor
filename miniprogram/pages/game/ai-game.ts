@@ -1,7 +1,7 @@
 import { NODE_IDS } from '../../domain/index';
 import type { CaptureResult, GameState, Move, NodeId, Player } from '../../domain/index';
 import { ApiError, messageForApiError } from '../../services/api-client';
-import type { CoachHintDto, GameDto, PositionAnalysisDto, SearchResultDto } from '../../services/api-contract';
+import type { AiLevelDto, CoachHintDto, GameDto, PositionAnalysisDto, SearchResultDto } from '../../services/api-contract';
 import type { GameApi } from '../../services/game-api';
 import type { GameIdStorage } from './remote-game';
 
@@ -11,7 +11,7 @@ export interface AiGameSnapshot {
   readonly gameState: GameState | null;
   readonly humanPlayer: Player | null;
   readonly aiPlayer: Player | null;
-  readonly aiLevel: 'STANDARD' | null;
+  readonly aiLevel: AiLevelDto | null;
   readonly selectedNode: NodeId | null;
   readonly legalTargets: readonly NodeId[];
   readonly lastMove: Move | null;
@@ -50,17 +50,21 @@ export class AiGameController {
   private readonly storage: GameIdStorage;
   private readonly onChange: (snapshot: AiGameSnapshot) => void;
   private readonly preferredAiPlayer: Player;
+  private preferredAiLevel: AiLevelDto;
   private readonly createOnMissing: boolean;
 
   constructor(api: GameApi, storage: GameIdStorage,
               onChange: (snapshot: AiGameSnapshot) => void,
-              options: { aiPlayer?: Player; createOnMissing?: boolean } = {}) {
+              options: { aiPlayer?: Player; aiLevel?: AiLevelDto; createOnMissing?: boolean } = {}) {
     this.api = api;
     this.storage = storage;
     this.onChange = onChange;
     this.preferredAiPlayer = options.aiPlayer ?? 'B';
+    this.preferredAiLevel = options.aiLevel ?? 'STANDARD';
     this.createOnMissing = options.createOnMissing ?? true;
   }
+
+  setAiLevel(level: AiLevelDto): void { this.preferredAiLevel = level; }
 
   get snapshot(): AiGameSnapshot { return this.state; }
 
@@ -92,7 +96,7 @@ export class AiGameController {
 
   private async create(firstPlayer: Player): Promise<GameDto> {
     return this.api.createGame({ first_player: firstPlayer, mode: 'AI',
-      ai_player: this.preferredAiPlayer, ai_level: 'STANDARD' });
+      ai_player: this.preferredAiPlayer, ai_level: this.preferredAiLevel });
   }
 
   async enter(firstPlayer: Player = 'A'): Promise<void> {
@@ -323,6 +327,27 @@ export class AiGameController {
       const game = await this.api.undo(gameId);
       if (!this.current(generation) || this.state.gameId !== gameId) return;
       this.accept(game);
+    } catch (error) {
+      if (!this.current(generation)) return;
+      this.publish({ errorMessage: messageForApiError(error) });
+    } finally {
+      if (this.current(generation)) this.publish({ isSubmittingMove: false });
+    }
+  }
+
+  async resign(): Promise<void> {
+    if (!this.state.gameId || this.state.gameState?.game_status === 'FINISHED' ||
+        this.state.isLoadingGame || this.state.isSubmittingMove || this.state.isAiThinking) return;
+    const gameId = this.state.gameId;
+    const generation = this.generation;
+    this.legalGeneration++;
+    this.publish({ isSubmittingMove: true, errorMessage: null, selectedNode: null, legalTargets: [],
+      analysis: null, analysisErrorMessage: null, coachHint: null, coachErrorMessage: null });
+    try {
+      const game = await this.api.resign(gameId);
+      if (!this.current(generation) || this.state.gameId !== gameId) return;
+      this.accept(game);
+      this.publish({ notice: '你已认输，本局结束' });
     } catch (error) {
       if (!this.current(generation)) return;
       this.publish({ errorMessage: messageForApiError(error) });

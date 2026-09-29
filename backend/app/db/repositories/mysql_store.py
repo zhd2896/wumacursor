@@ -185,6 +185,21 @@ class MySQLGameStore:
     async def revert_moves(self, game_id: str, expected_version: int, steps: int) -> None:
         await asyncio.to_thread(self._revert_moves, game_id, expected_version, steps)
 
+    async def commit_resign(self, game_id: str, expected_version: int, state: GameState) -> None:
+        await asyncio.to_thread(self._commit_resign, game_id, expected_version, state)
+
+    def _commit_resign(self, game_id: str, expected_version: int, state: GameState) -> None:
+        try:
+            with self.sessions.begin() as session:
+                games = GameRepository(session)
+                row = games.get_game(game_id)
+                if row.version != expected_version or GameState.model_validate(row.current_state).game_status == "FINISHED":
+                    raise ApiError("GAME_STATE_CONFLICT", "Game state changed; retry resign")
+                games.update_game_state(row, expected_version, state)
+                session.flush()
+        except SQLAlchemyError as exc:
+            raise ApiError("DATABASE_UNAVAILABLE", "Database operation failed") from exc
+
     def _revert_moves(self, game_id: str, expected_version: int, steps: int) -> None:
         try:
             with self.sessions.begin() as session:

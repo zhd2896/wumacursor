@@ -2,7 +2,9 @@ import { gameService } from '../../services/index';
 import type { BoardState } from '../../types/domain';
 import { boardLines, boardNodes } from '../../mock/game';
 import { openPage, backHome } from '../../utils/navigation';
-import { createLocalGameSession, getLocalBoardView, tapLocalGameNode, undoLocalGame } from './local-game';
+import { analyzePosition } from '../../ai/position-analysis';
+import type { AiLevelDto } from '../../services/api-contract';
+import { createLocalGameSession, getLocalBoardView, resignLocalGame, tapLocalGameNode, undoLocalGame } from './local-game';
 import type { LocalGameSession } from './local-game';
 import { mapGameStateToView } from './game-state-mapper';
 import type { GameViewModel } from './game-state-mapper';
@@ -17,11 +19,20 @@ import { createWxDeviceHistoryStore } from '../../services/device-history';
 import type { GameIdStorage } from './remote-game';
 import { mapPositionAnalysis } from '../analysis/analysis-view-model';
 import type { AnalysisViewModel } from '../analysis/analysis-view-model';
+import { buildHintFromAnalysis, type GameHintView } from './hint-builder';
 
 const activeGameIdKey = 'activeRemoteGameId';
 const activeAiGameIdKey = 'activeAiGameId';
 const activeLocalGameIdKey = 'activeLocalGameId';
 const emptyBoard: BoardState = { nodes: boardNodes, lines: boardLines, pieces: [] };
+
+const AI_LEVEL_LABELS: Readonly<Record<AiLevelDto, string>> = {
+  BEGINNER: '入门 AI', STANDARD: '标准 AI', ADVANCED: '进阶 AI',
+};
+
+function aiSideLabel(level: AiLevelDto | null | undefined, side: Player): string {
+  return `${AI_LEVEL_LABELS[level ?? 'STANDARD']} · ${side}`;
+}
 
 const gameIdStorage = {
   read: (): string | null => {
@@ -64,8 +75,13 @@ Page({
     aiAName: '玩家 A', aiBName: '标准 AI · B',
     aiCaptureText: '',
     aiAnalysisView: null as AnalysisViewModel | null,
-    mode: 'ai', showHint: false, thinking: false,
-    showResign: false, showSettings: false, resigned: false },
+    aiDifficulty: 'STANDARD' as AiLevelDto,
+    localHintView: null as GameHintView | null,
+    localHintLevel: 0,
+    localHintLoading: false,
+    localHintError: '',
+    mode: 'ai', thinking: false,
+    showResign: false, showSettings: false },
   remoteController: null as RemoteGameController | null,
   aiController: null as AiGameController | null,
   aiFirstPlayer: 'A' as Player,
@@ -73,7 +89,8 @@ Page({
     if (options.mode === 'local') this.enterLocalGame(options.gameId);
     else if (options.mode === 'remote') {
       this.setData({ mode: 'remote', board: emptyBoard, remoteReady: false,
-        showHint: false, thinking: false, showResign: false, showSettings: false });
+        thinking: false, showResign: false, showSettings: false,
+        localHintView: null, localHintLevel: 0, localHintLoading: false, localHintError: '' });
       this.remoteController = new RemoteGameController(
         createGameApi(createApiClient()), storageForRoute(gameIdStorage, options.gameId),
         snapshot => this.renderRemote(snapshot),
@@ -84,11 +101,12 @@ Page({
     } else {
       this.aiFirstPlayer = options.first === 'ai' ? 'B' : 'A';
       this.setData({ mode: 'ai', board: emptyBoard, aiReady: false,
-        showHint: false, thinking: false, showResign: false, showSettings: false });
+        thinking: false, showResign: false, showSettings: false,
+        localHintView: null, localHintLevel: 0, localHintLoading: false, localHintError: '' });
       this.aiController = new AiGameController(
         createGameApi(createApiClient()), storageForRoute(aiGameIdStorage, options.gameId),
         snapshot => this.renderAi(snapshot),
-        { createOnMissing: !options.gameId },
+        { createOnMissing: !options.gameId, aiLevel: this.data.aiDifficulty },
       );
       this.renderAi(this.aiController.snapshot);
       void this.aiController.enter(this.aiFirstPlayer);
@@ -129,8 +147,9 @@ Page({
       aiCaptureText: snapshot.lastCapture?.was_applied
         ? `本步吃子 ${snapshot.lastCapture.captured_nodes.length} 枚，备用棋消耗 ${snapshot.lastCapture.reserve_used} 枚`
         : '',
-      aiAName: snapshot.aiPlayer === 'A' ? '标准 AI · A' : '玩家 A',
-      aiBName: snapshot.aiPlayer === 'B' ? '标准 AI · B' : '玩家 B',
+      aiAName: snapshot.aiPlayer === 'A' ? aiSideLabel(snapshot.aiLevel, 'A') : '玩家 A',
+      aiBName: snapshot.aiPlayer === 'B' ? aiSideLabel(snapshot.aiLevel, 'B') : '玩家 B',
+      aiDifficulty: snapshot.aiLevel ?? this.data.aiDifficulty,
       aiReady: view !== null, board: view?.board ?? emptyBoard });
   },
   back() { backHome(); },
@@ -162,13 +181,7 @@ Page({
       if (result.turn?.captures.failure_reason === 'INSUFFICIENT_RESERVE') {
         wx.showToast({ title: '备用棋不足，本次吃子未生效', icon: 'none' });
       }
-      return;
     }
-    const board = this.data.board as BoardState;
-    const id = event.detail.id;
-    const piece = board.pieces.find(item => item.nodeId === id);
-    if (piece) this.setData({ board: { ...board, selectedId: id } });
-    else wx.showToast({ title: '演示模式：尚未接入棋规', icon: 'none' });
   },
   onAction(event: WechatMiniprogram.TouchEvent) {
     const action = event.currentTarget.dataset.action as string;
@@ -218,8 +231,8 @@ Page({
           this.setData({ mode: 'local', localGameId: savedId, localTurns: entry.turns,
             localSession: session, board: getLocalBoardView(session),
             localErrorMessage: '',
-            showHint: false, thinking: false, showResign: false,
-            showSettings: false, resigned: false });
+            showResign: false, showSettings: false,
+            localHintView: null, localHintLevel: 0, localHintLoading: false, localHintError: '' });
           return;
         }
       } catch {
@@ -236,10 +249,10 @@ Page({
         localErrorMessage: '本地历史棋局不存在', board: emptyBoard });
       return;
     }
-    this.restartLocalGame();
+    this.restartLocalGame('A');
   },
-  restartLocalGame() {
-    const session = createLocalGameSession();
+  restartLocalGame(firstPlayer: Player = 'A') {
+    const session = createLocalGameSession(firstPlayer);
     const id = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     if (!this.saveHistory(id, 'local', session.gameState, 0)) {
       this.setData({ mode: 'local', localErrorMessage: '本地棋局保存失败，请重试新局' });
@@ -251,12 +264,22 @@ Page({
       mode: 'local', localGameId: id, localTurns: 0,
       localSession: session, board: getLocalBoardView(session),
       localErrorMessage: '',
-      showHint: false, thinking: false, showResign: false, showSettings: false, resigned: false,
+      showResign: false, showSettings: false,
+      localHintView: null, localHintLevel: 0, localHintLoading: false, localHintError: '',
     });
   },
+  restartLocalFirstB() {
+    this.setData({ showSettings: false });
+    this.restartLocalGame('B');
+  },
   restartRemoteGame() { void this.remoteController?.restart(); },
+  refreshRemoteGame() { void this.remoteController?.enter(); },
   retryRemoteGame() { void this.remoteController?.enter(); },
-  restartAiGame() { this.aiFirstPlayer = 'A'; void this.aiController?.restart('A'); },
+  restartAiGame() {
+    this.aiFirstPlayer = 'A';
+    this.setData({ showSettings: false });
+    void this.aiController?.restart('A');
+  },
   restartAiFirstGame() {
     this.aiFirstPlayer = 'B';
     this.setData({ showSettings: false });
@@ -280,11 +303,7 @@ Page({
           !this.saveHistory(this.data.localGameId, 'local', undone.gameState, turns, undone.lastMove)) {
         return;
       }
-      this.setData({
-        localSession: undone,
-        board: getLocalBoardView(undone),
-        localTurns: turns,
-      });
+      this.setData({ localSession: undone, board: getLocalBoardView(undone), localTurns: turns });
       return;
     }
     if (this.data.mode === 'ai') {
@@ -302,11 +321,30 @@ Page({
       void this.aiController?.requestCoachHint();
       return;
     }
-    if (this.data.mode === 'local' || this.data.mode === 'remote') {
-      wx.showToast({ title: '当前对局暂不提供提示', icon: 'none' });
+    if (this.data.mode === 'local') {
+      void this.requestLocalHint();
       return;
     }
-    this.setData({ showHint: !this.data.showHint });
+    if (this.data.mode === 'remote') {
+      void this.remoteController?.requestHint();
+    }
+  },
+  async requestLocalHint() {
+    const session = this.data.localSession as LocalGameSession | null;
+    if (!session || session.gameState.game_status !== 'PLAYING' || this.data.localHintLoading) return;
+    const level = Math.min(3, this.data.localHintLevel + 1) as 1 | 2 | 3;
+    this.setData({ localHintLoading: true, localHintError: '' });
+    try {
+      const analysis = analyzePosition(session.gameState,
+        { maxDepth: 2, timeLimitMs: 1000, now: () => Date.now() });
+      this.setData({
+        localHintView: buildHintFromAnalysis(analysis, level),
+        localHintLevel: level,
+        localHintLoading: false,
+      });
+    } catch {
+      this.setData({ localHintLoading: false, localHintError: '提示暂时不可用' });
+    }
   },
   openAnalysis() {
     if (this.data.mode === 'ai') {
@@ -326,12 +364,58 @@ Page({
       ? this.data.aiState?.gameId : this.data.remoteState?.gameId;
     if (gameId) openPage(`/pages/review/review?gameId=${encodeURIComponent(gameId)}`);
   },
+  isGameFinished(): boolean {
+    if (this.data.mode === 'local') return this.data.localSession?.gameState.game_status === 'FINISHED';
+    if (this.data.mode === 'remote') return this.data.remoteView?.gameOver ?? false;
+    return this.data.aiView?.gameOver ?? false;
+  },
   resign() {
-    if (this.data.mode === 'local') return;
+    if (this.isGameFinished()) {
+      wx.showToast({ title: '本局已结束', icon: 'none' });
+      return;
+    }
     this.setData({ showResign: true });
   },
   cancelResign() { this.setData({ showResign: false }); },
-  confirmResign() { this.setData({ showResign: false, resigned: true }); wx.showToast({ title: '演示对局已结束', icon: 'none' }); },
+  confirmResign() {
+    this.setData({ showResign: false });
+    if (this.data.mode === 'local') {
+      const session = this.data.localSession as LocalGameSession | null;
+      if (!session || session.gameState.game_status === 'FINISHED') return;
+      const resigned = resignLocalGame(session, session.gameState.current_player);
+      if (!resigned) return;
+      if (this.data.localGameId &&
+          !this.saveHistory(this.data.localGameId, 'local', resigned.gameState,
+            this.data.localTurns, resigned.lastMove)) {
+        return;
+      }
+      this.setData({
+        localSession: resigned,
+        board: getLocalBoardView(resigned),
+        localHintView: null,
+        localHintLevel: 0,
+      });
+      wx.showToast({ title: '已认输', icon: 'none' });
+      return;
+    }
+    if (this.data.mode === 'ai') {
+      void this.aiController?.resign();
+      return;
+    }
+    if (this.data.mode === 'remote') {
+      void this.remoteController?.resign();
+    }
+  },
+  selectAiDifficulty(event: WechatMiniprogram.TouchEvent) {
+    const level = event.currentTarget.dataset.level as AiLevelDto;
+    if (!level || level === this.data.aiDifficulty) return;
+    this.aiController?.setAiLevel(level);
+    this.setData({ aiDifficulty: level });
+  },
+  startAiGameWithDifficulty() {
+    this.setData({ showSettings: false });
+    void this.aiController?.restart(this.aiFirstPlayer);
+  },
   settings() { this.setData({ showSettings: !this.data.showSettings }); },
   toggleThinking() {}
 });

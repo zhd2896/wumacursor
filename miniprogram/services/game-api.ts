@@ -2,7 +2,7 @@ import type { NodeId } from '../domain/index';
 import type { ApiClient } from './api-client';
 import type { AiMoveRequestDto, AiMoveResponseDto, CreateGameRequestDto, GameDto, LegalMovesDto,
   MoveRequestDto, MoveResponseDto, PositionAnalysisDto, GameReviewDto,
-  ExplainedReviewDto, CoachHintDto } from './api-contract';
+  ExplainedReviewDto, CoachHintDto, ResignRequestDto } from './api-contract';
 
 export interface GameApi {
   createGame(request?: CreateGameRequestDto): Promise<GameDto>;
@@ -11,6 +11,7 @@ export interface GameApi {
   move(gameId: string, request: MoveRequestDto): Promise<MoveResponseDto>;
   aiMove(gameId: string, request: AiMoveRequestDto): Promise<AiMoveResponseDto>;
   undo(gameId: string): Promise<GameDto>;
+  resign(gameId: string, request?: ResignRequestDto): Promise<GameDto>;
   analyzeGame(gameId: string, expectedVersion?: number): Promise<PositionAnalysisDto>;
   getCoachHint(gameId: string, level: 1 | 2 | 3, expectedVersion: number): Promise<CoachHintDto>;
   getReview(gameId: string, reviewedPlayer?: 'A' | 'B'): Promise<GameReviewDto>;
@@ -30,6 +31,7 @@ export function createGameApi(client: ApiClient): GameApi {
     move: (gameId, request) => client.request('POST', `${base(gameId)}/move`, request),
     aiMove: (gameId, request) => client.request('POST', `${base(gameId)}/ai-move`, request, 50000),
     undo: gameId => client.request('POST', `${base(gameId)}/undo`, {}),
+    resign: (gameId, request = {}) => client.request('POST', `${base(gameId)}/resign`, request),
     analyzeGame: (gameId, expectedVersion) => client.request('POST', '/api/v1/ai/analyze',
       { game_id: gameId, ...(expectedVersion === undefined ? {} : { expected_version: expectedVersion }) },
       50000),

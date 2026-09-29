@@ -15,6 +15,8 @@ export type CaptureResultDto = CaptureResult;
 export type TurnResultDto = TurnResult;
 export type SearchResultDto = IterativeDeepeningSearchResult;
 
+export type AiLevelDto = 'BEGINNER' | 'STANDARD' | 'ADVANCED';
+
 export interface GameDto {
   readonly game_id: string;
   readonly version?: number;
@@ -22,12 +24,13 @@ export interface GameDto {
   readonly mode: 'LOCAL' | 'AI';
   readonly human_player: Player | null;
   readonly ai_player: Player | null;
-  readonly ai_level: 'STANDARD' | null;
+  readonly ai_level: AiLevelDto | null;
 }
 export type CreateGameRequestDto =
   | { readonly first_player: Player; readonly mode: 'LOCAL' }
   | { readonly first_player: Player; readonly mode: 'AI';
-      readonly ai_player: Player; readonly ai_level: 'STANDARD' };
+      readonly ai_player: Player; readonly ai_level: AiLevelDto };
+export interface ResignRequestDto { readonly resigning_player?: Player; }
 export interface LegalMovesDto { readonly moves: readonly Move[] }
 export interface MoveRequestDto { readonly from_node: NodeId; readonly to_node: NodeId }
 export interface MoveResponseDto { readonly turn: TurnResultDto }

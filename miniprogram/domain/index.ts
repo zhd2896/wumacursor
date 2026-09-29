@@ -101,7 +101,7 @@ export interface PlayerState {
   readonly reserve_count: number;
 }
 
-export type WinnerReason = 'CAPTURE_ALL' | 'TEMPLE_TRAP' | 'LONE_PIECE_IMMOBILIZED';
+export type WinnerReason = 'CAPTURE_ALL' | 'TEMPLE_TRAP' | 'LONE_PIECE_IMMOBILIZED' | 'RESIGN';
 export type GameStatus = 'PLAYING' | 'FINISHED';
 
 export interface GameState {
@@ -112,6 +112,12 @@ export interface GameState {
   readonly game_status: GameStatus;
   readonly winner: Player | null;
   readonly winner_reason: WinnerReason | null;
+}
+
+export function finishGameByResign(state: GameState, resigningPlayer: Player): GameState {
+  if (state.game_status === 'FINISHED') return state;
+  const winner: Player = resigningPlayer === 'A' ? 'B' : 'A';
+  return { ...state, game_status: 'FINISHED', winner, winner_reason: 'RESIGN' };
 }
 
 export function getPieceAt(board: BoardState, node: NodeId): Player | null {

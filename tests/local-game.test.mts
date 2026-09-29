@@ -24,6 +24,7 @@ registerHooks({
 const {
   createLocalGameSession,
   getLocalBoardView,
+  resignLocalGame,
   tapLocalGameNode,
   undoLocalGame,
 } = await import('../miniprogram/pages/game/local-game.ts');
@@ -200,6 +201,16 @@ test('stale legal highlighting cannot bypass executeTurn validation', () => {
   assert.ok(attempt.error);
   assert.equal(attempt.session, stale);
   assert.deepEqual(stale.gameState, snapshot);
+});
+
+test('resignLocalGame finishes the game for the opponent', () => {
+  const session = createLocalGameSession();
+  const resigned = resignLocalGame(session, 'A');
+  assert.ok(resigned);
+  assert.equal(resigned.gameState.game_status, 'FINISHED');
+  assert.equal(resigned.gameState.winner, 'B');
+  assert.equal(resigned.gameState.winner_reason, 'RESIGN');
+  assert.equal(resignLocalGame(resigned, 'B'), null);
 });
 
 test('undoLocalGame restores the previous position and turn count', () => {

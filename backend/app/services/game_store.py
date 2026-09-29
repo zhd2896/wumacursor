@@ -64,6 +64,7 @@ class GameStore(Protocol):
     async def commit_turn(self, game_id: str, expected_version: int, turn: TurnResult,
                           actor_type: str, search: SearchResult | None = None) -> None: ...
     async def revert_moves(self, game_id: str, expected_version: int, steps: int) -> None: ...
+    async def commit_resign(self, game_id: str, expected_version: int, state: GameState) -> None: ...
     async def list_moves(self, game_id: str) -> list[StoredMove]: ...
     async def read_replay(self, game_id: str) -> tuple[StoredGame, list[StoredMove]]: ...
     async def lock_for(self, game_id: str) -> asyncio.Lock: ...
@@ -220,6 +221,13 @@ class InMemoryGameStore:
         new_state = game.initial_state if new_version == 0 else moves[new_version - 1].turn.state
         self._moves[game_id] = moves[:new_version]
         self._games[game_id] = StoredGame(game_id, game.initial_state, new_state, new_version,
+                                          game.mode, game.ai_player, game.ai_level, game.user_id)
+
+    async def commit_resign(self, game_id: str, expected_version: int, state: GameState) -> None:
+        game = await self.get_snapshot(game_id)
+        if game.version != expected_version or game.state.game_status == "FINISHED":
+            raise ApiError("GAME_STATE_CONFLICT", "Game state changed; retry resign")
+        self._games[game_id] = StoredGame(game_id, game.initial_state, state, game.version + 1,
                                           game.mode, game.ai_player, game.ai_level, game.user_id)
 
     async def list_moves(self, game_id: str) -> list[StoredMove]:

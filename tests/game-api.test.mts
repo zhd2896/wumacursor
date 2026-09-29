@@ -32,6 +32,8 @@ test('client unwraps success envelope and game API sends exact create/move paths
   await api.move('g1', { from_node: 'P01', to_node: 'P02' });
   await api.aiMove('g1', {});
   await api.undo('g1');
+  await api.resign('g1');
+  await api.resign('g1', { resigning_player: 'A' });
   await api.analyzeGame('g1');
   await api.analyzeGame('g1', 0);
   await api.createGame({ first_player: 'B', mode: 'AI', ai_player: 'B', ai_level: 'STANDARD' });
@@ -42,6 +44,8 @@ test('client unwraps success envelope and game API sends exact create/move paths
     ['POST', 'http://127.0.0.1:8000/api/v1/game/g1/move'],
     ['POST', 'http://127.0.0.1:8000/api/v1/game/g1/ai-move'],
     ['POST', 'http://127.0.0.1:8000/api/v1/game/g1/undo'],
+    ['POST', 'http://127.0.0.1:8000/api/v1/game/g1/resign'],
+    ['POST', 'http://127.0.0.1:8000/api/v1/game/g1/resign'],
     ['POST', 'http://127.0.0.1:8000/api/v1/ai/analyze'],
     ['POST', 'http://127.0.0.1:8000/api/v1/ai/analyze'],
     ['POST', 'http://127.0.0.1:8000/api/v1/game'],
@@ -50,9 +54,11 @@ test('client unwraps success envelope and game API sends exact create/move paths
   assert.deepEqual(sent[3].data, { from_node: 'P01', to_node: 'P02' });
   assert.deepEqual(sent[4].data, {});
   assert.deepEqual(sent[5].data, {});
-  assert.deepEqual(sent[6].data, { game_id: 'g1' });
-  assert.deepEqual(sent[7].data, { game_id: 'g1', expected_version: 0 });
-  assert.deepEqual(sent[8].data, { first_player: 'B', mode: 'AI',
+  assert.deepEqual(sent[6].data, {});
+  assert.deepEqual(sent[7].data, { resigning_player: 'A' });
+  assert.deepEqual(sent[8].data, { game_id: 'g1' });
+  assert.deepEqual(sent[9].data, { game_id: 'g1', expected_version: 0 });
+  assert.deepEqual(sent[10].data, { first_player: 'B', mode: 'AI',
     ai_player: 'B', ai_level: 'STANDARD' });
 });
 

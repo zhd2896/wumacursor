@@ -8,7 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 Player = Literal["A", "B"]
 NodeId = Annotated[str, StringConstraints(pattern=r"^P(?:0[1-9]|1[0-9]|2[0-9])$")]
-WinnerReason = Literal["CAPTURE_ALL", "TEMPLE_TRAP", "LONE_PIECE_IMMOBILIZED"]
+WinnerReason = Literal["CAPTURE_ALL", "TEMPLE_TRAP", "LONE_PIECE_IMMOBILIZED", "RESIGN"]
+AiLevel = Literal["BEGINNER", "STANDARD", "ADVANCED"]
 
 
 class StrictModel(BaseModel):
@@ -230,11 +231,15 @@ class ReviewRequest(StrictModel):
     reviewed_player: Player | None = None
 
 
+class ResignRequest(StrictModel):
+    resigning_player: Player | None = None
+
+
 class CreateGameRequest(StrictModel):
     first_player: Player = "A"
     mode: Literal["LOCAL", "AI"] = "LOCAL"
     ai_player: Player | None = None
-    ai_level: Literal["STANDARD"] | None = None
+    ai_level: AiLevel | None = None
 
 
 class MoveRequest(StrictModel):
@@ -258,7 +263,7 @@ class GameResponse(StrictModel):
     mode: Literal["LOCAL", "AI"]
     human_player: Player | None
     ai_player: Player | None
-    ai_level: Literal["STANDARD"] | None
+    ai_level: AiLevel | None
 
 
 class LegalMovesResponse(StrictModel):

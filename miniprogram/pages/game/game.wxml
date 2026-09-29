@@ -1,5 +1,5 @@
 <view class="page game-page">
-  <view class="topbar"><text class="topbar-back" bindtap="back">‹</text>{{mode == 'local' ? '本地双人模式' : mode == 'remote' ? '远程双人模式' : 'AI 对弈'}}<text class="topbar-tag">{{mode == 'local' ? '本地双人' : mode == 'remote' ? 'API 对局' : '标准 AI'}}</text></view>
+  <view class="topbar"><text class="topbar-back" bindtap="back">‹</text>{{mode == 'local' ? '本地双人模式' : mode == 'remote' ? '远程双人模式' : 'AI 对弈'}}<text class="topbar-tag">{{mode == 'local' ? '本地双人' : mode == 'remote' ? 'API 对局' : aiDifficulty == 'BEGINNER' ? '入门 AI' : aiDifficulty == 'ADVANCED' ? '进阶 AI' : '标准 AI'}}</text></view>
   <view class="game-inner">
     <view class="versus ink-card"><player-card name="{{mode == 'ai' ? aiAName : '玩家 A'}}" level="{{mode == 'ai' ? '标准对弈' : mode == 'remote' ? '云端对局' : '本地对弈'}}" pieces="黑方 · 五马" avatar="{{mode == 'ai' && aiState.aiPlayer == 'A' ? '✦' : '棋'}}" side="{{mode == 'ai' && aiState.aiPlayer == 'A' ? 'ai' : 'human'}}" /><view class="vs">VS</view><player-card name="{{mode == 'ai' ? aiBName : '玩家 B'}}" level="{{mode == 'ai' ? '标准对弈' : mode == 'remote' ? '云端对局' : '本地对弈'}}" pieces="红方 · 五马" avatar="{{mode == 'ai' && aiState.aiPlayer == 'B' ? '✦' : '友'}}" side="{{mode == 'ai' && aiState.aiPlayer == 'B' ? 'ai' : 'human'}}" /></view>
     <view wx:if="{{mode == 'local' && localSession}}" class="reserve-row"><text>玩家 A · 备用棋 {{localSession.gameState.players.A.reserve_count}}</text><text>玩家 B · 备用棋 {{localSession.gameState.players.B.reserve_count}}</text></view>
@@ -24,6 +24,7 @@
         <view wx:elif="{{localSession.gameState.winner_reason == 'CAPTURE_ALL'}}" class="status-sub">对方棋子已全部被吃</view>
         <view wx:elif="{{localSession.gameState.winner_reason == 'TEMPLE_TRAP'}}" class="status-sub">对方孤棋被困于庙宇</view>
         <view wx:elif="{{localSession.gameState.winner_reason == 'LONE_PIECE_IMMOBILIZED'}}" class="status-sub">对方孤棋无路可走</view>
+        <view wx:elif="{{localSession.gameState.winner_reason == 'RESIGN'}}" class="status-sub">对方认输</view>
         <view wx:else class="status-sub">点选己方棋子，再点击亮起的合法位置</view>
       </block>
       <block wx:elif="{{mode == 'remote'}}">
@@ -45,7 +46,26 @@
         <view wx:else class="status-sub">点选己方棋子，再点击亮起的合法位置</view>
       </block>
     </view></view>
-    <view wx:if="{{showHint && mode != 'ai'}}" class="hint-area"><ai-panel message="演示提示：先观察中央交汇点 P13，再比较两侧路线。" /></view>
+    <view wx:if="{{mode == 'local' && localHintLoading}}" class="analysis-status">正在准备提示...</view>
+    <view wx:if="{{mode == 'local' && localHintError}}" class="analysis-status analysis-error">{{localHintError}}</view>
+    <view wx:if="{{mode == 'local' && localHintView}}" class="analysis-card coach-card">
+      <view class="analysis-title">{{localHintView.level == 1 ? '一级提示 · 关注什么' : localHintView.level == 2 ? '二级提示 · 重点棋子' : '三级提示 · 推荐走法'}}</view>
+      <view class="analysis-line">{{localHintView.hintText}}</view>
+      <view wx:if="{{localHintView.level == 1}}" class="analysis-line">关注点：<text wx:for="{{localHintView.focusTopics}}" wx:key="*this">{{item}} </text></view>
+      <view wx:if="{{localHintView.level == 2}}" class="analysis-line">候选棋子：<text wx:for="{{localHintView.candidateFromNodes}}" wx:key="*this">{{item}} </text></view>
+      <view wx:if="{{localHintView.level == 3 && localHintView.bestMove}}" class="analysis-line">推荐走法：{{localHintView.bestMove.from}} → {{localHintView.bestMove.to}}</view>
+      <button wx:if="{{localHintView.level < 3 && !localHintLoading}}" class="coach-more" bindtap="hint">查看更多提示</button>
+    </view>
+    <view wx:if="{{mode == 'remote' && remoteState.isHintLoading}}" class="analysis-status">正在准备提示...</view>
+    <view wx:if="{{mode == 'remote' && remoteState.hintErrorMessage}}" class="analysis-status analysis-error">{{remoteState.hintErrorMessage}}</view>
+    <view wx:if="{{mode == 'remote' && remoteState.hintView}}" class="analysis-card coach-card">
+      <view class="analysis-title">{{remoteState.hintView.level == 1 ? '一级提示 · 关注什么' : remoteState.hintView.level == 2 ? '二级提示 · 重点棋子' : '三级提示 · 推荐走法'}}</view>
+      <view class="analysis-line">{{remoteState.hintView.hintText}}</view>
+      <view wx:if="{{remoteState.hintView.level == 1}}" class="analysis-line">关注点：<text wx:for="{{remoteState.hintView.focusTopics}}" wx:key="*this">{{item}} </text></view>
+      <view wx:if="{{remoteState.hintView.level == 2}}" class="analysis-line">候选棋子：<text wx:for="{{remoteState.hintView.candidateFromNodes}}" wx:key="*this">{{item}} </text></view>
+      <view wx:if="{{remoteState.hintView.level == 3 && remoteState.hintView.bestMove}}" class="analysis-line">推荐走法：{{remoteState.hintView.bestMove.from}} → {{remoteState.hintView.bestMove.to}}</view>
+      <button wx:if="{{remoteState.hintView.level < 3 && !remoteState.isHintLoading}}" class="coach-more" bindtap="hint">查看更多提示</button>
+    </view>
     <view wx:if="{{mode == 'ai' && aiState.isCoachLoading}}" class="analysis-status">正在准备提示...</view>
     <view wx:if="{{mode == 'ai' && aiState.coachErrorMessage}}" class="analysis-status analysis-error">{{aiState.coachErrorMessage}}</view>
     <view wx:if="{{mode == 'ai' && aiState.coachHint}}" class="analysis-card coach-card">
@@ -71,9 +91,23 @@
       <view wx:for="{{aiAnalysisView.threats}}" wx:key="id" class="analysis-line">{{item.label}} {{item.move}}</view>
     </view>
     <button wx:if="{{mode == 'ai' && aiReady && aiView.gameOver || mode == 'remote' && remoteReady && remoteView.gameOver}}" class="review-button" data-action="review" bindtap="onAction">查看复盘</button>
-    <view wx:if="{{showSettings}}" class="settings-area"><view class="settings-title">{{mode == 'local' ? '本地对局设置' : mode == 'remote' ? '远程对局设置' : 'AI 对弈设置'}}</view><view>当前模式：{{mode == 'local' ? '本地双人' : mode == 'remote' ? '云端双人' : '标准 AI'}}</view><view wx:if="{{mode == 'ai'}}" class="ai-first-options"><button size="mini" bindtap="restartAiGame">我先手新局</button><button size="mini" bindtap="restartAiFirstGame">AI 先手新局</button></view></view>
-    <view class="actions"><view id="action-undo" data-action="undo" bindtap="onAction"><text>↶</text><view>悔棋</view></view><view id="action-hint" class="{{mode == 'ai' && (!aiReady || aiState.gameState.game_status != 'PLAYING' || aiState.gameState.current_player != aiState.humanPlayer || aiState.isAiThinking || aiState.isSubmittingMove || aiState.isCoachLoading || aiState.needsResync) ? 'action-disabled' : ''}}" data-action="hint" bindtap="onAction"><text>✦</text><view>提示</view></view><view id="action-analysis" data-action="analysis" bindtap="onAction"><text>▥</text><view>{{mode == 'ai' ? '局面分析' : '分析'}}</view></view><view id="action-restart" data-action="restart" bindtap="onAction"><text>↻</text><view>重新开始</view></view><view id="action-settings" data-action="settings" bindtap="onAction"><text>⚙</text><view>设置</view></view></view>
+    <view wx:if="{{showSettings}}" class="settings-area">
+      <view class="settings-title">{{mode == 'local' ? '本地对局设置' : mode == 'remote' ? '远程对局设置' : 'AI 对弈设置'}}</view>
+      <view wx:if="{{mode == 'local'}}" class="settings-line">本地双人同屏对弈，悔棋每次撤销一步。</view>
+      <view wx:if="{{mode == 'local'}}" class="ai-first-options"><button size="mini" bindtap="restartLocalGame">玩家 A 先手新局</button><button size="mini" bindtap="restartLocalFirstB">玩家 B 先手新局</button></view>
+      <view wx:if="{{mode == 'remote'}}" class="settings-line">云端保存棋局，双方轮流在本机落子。</view>
+      <view wx:if="{{mode == 'remote' && remoteState.gameId}}" class="settings-line">棋局编号：{{remoteState.gameId}}</view>
+      <view wx:if="{{mode == 'remote'}}" class="ai-first-options"><button size="mini" bindtap="refreshRemoteGame">刷新棋局</button><button size="mini" bindtap="restartRemoteGame">重新开始</button></view>
+      <view wx:if="{{mode == 'ai'}}" class="settings-line">选择难度后点击「按设置开新局」生效。</view>
+      <view wx:if="{{mode == 'ai'}}" class="ai-difficulty-options">
+        <button size="mini" class="{{aiDifficulty == 'BEGINNER' ? 'settings-active' : ''}}" data-level="BEGINNER" bindtap="selectAiDifficulty">入门</button>
+        <button size="mini" class="{{aiDifficulty == 'STANDARD' ? 'settings-active' : ''}}" data-level="STANDARD" bindtap="selectAiDifficulty">标准</button>
+        <button size="mini" class="{{aiDifficulty == 'ADVANCED' ? 'settings-active' : ''}}" data-level="ADVANCED" bindtap="selectAiDifficulty">进阶</button>
+      </view>
+      <view wx:if="{{mode == 'ai'}}" class="ai-first-options"><button size="mini" bindtap="restartAiGame">我先手新局</button><button size="mini" bindtap="restartAiFirstGame">AI 先手新局</button><button size="mini" bindtap="startAiGameWithDifficulty">按设置开新局</button></view>
+    </view>
+    <view class="actions"><view id="action-undo" data-action="undo" bindtap="onAction"><text>↶</text><view>悔棋</view></view><view id="action-hint" class="{{mode == 'ai' && (!aiReady || aiState.gameState.game_status != 'PLAYING' || aiState.gameState.current_player != aiState.humanPlayer || aiState.isAiThinking || aiState.isSubmittingMove || aiState.isCoachLoading || aiState.needsResync) || mode == 'local' && (!localSession || localSession.gameState.game_status != 'PLAYING' || localHintLoading) || mode == 'remote' && (!remoteReady || remoteView.gameOver || remoteState.isHintLoading || remoteState.isSubmittingMove) ? 'action-disabled' : ''}}" data-action="hint" bindtap="onAction"><text>✦</text><view>提示</view></view><view id="action-analysis" data-action="analysis" bindtap="onAction"><text>▥</text><view>{{mode == 'ai' ? '局面分析' : '分析'}}</view></view><view id="action-resign" class="{{mode == 'local' && (!localSession || localSession.gameState.game_status == 'FINISHED') || mode == 'remote' && (!remoteReady || remoteView.gameOver) || mode == 'ai' && (!aiReady || aiView.gameOver) ? 'action-disabled' : ''}}" data-action="resign" bindtap="onAction"><text>✕</text><view>认输</view></view><view id="action-restart" data-action="restart" bindtap="onAction"><text>↻</text><view>重新开始</view></view><view id="action-settings" data-action="settings" bindtap="onAction"><text>⚙</text><view>设置</view></view></view>
   </view>
-  <confirm-dialog visible="{{showResign}}" title="确认结束对局？" message="当前为 UI 演示模式。确认后将显示对局结束状态。" bind:cancel="cancelResign" bind:confirm="confirmResign" />
+  <confirm-dialog visible="{{showResign}}" title="确认认输？" message="认输后对方将获胜，本局无法继续。确定要认输吗？" bind:cancel="cancelResign" bind:confirm="confirmResign" />
   <bottom-nav current="game" />
 </view>

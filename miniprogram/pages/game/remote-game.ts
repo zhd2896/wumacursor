@@ -1,7 +1,9 @@
 import { NODE_IDS } from '../../domain/index';
 import type { CaptureResult, GameState, Move, NodeId } from '../../domain/index';
 import { ApiError, messageForApiError } from '../../services/api-client';
+import { analyzePosition } from '../../ai/position-analysis';
 import type { GameApi } from '../../services/game-api';
+import { buildHintFromAnalysis, type GameHintView } from './hint-builder';
 
 export interface GameIdStorage {
   read(): string | null;
@@ -23,6 +25,10 @@ export interface RemoteGameSnapshot {
   readonly needsResync: boolean;
   readonly errorMessage: string | null;
   readonly notice: string | null;
+  readonly hintView: GameHintView | null;
+  readonly hintLevel: number;
+  readonly isHintLoading: boolean;
+  readonly hintErrorMessage: string | null;
 }
 
 const emptySnapshot: RemoteGameSnapshot = {
@@ -31,6 +37,7 @@ const emptySnapshot: RemoteGameSnapshot = {
   isLoadingGame: false, isLoadingLegalMoves: false, isSubmittingMove: false,
   needsResync: false,
   errorMessage: null, notice: null,
+  hintView: null, hintLevel: 0, isHintLoading: false, hintErrorMessage: null,
 };
 
 export class RemoteGameController {
@@ -97,7 +104,8 @@ export class RemoteGameController {
       this.storage.write(game.game_id);
       this.publish({ gameId: game.game_id, gameVersion: game.version ?? null,
         gameState: game.state,
-        lastMove: null, lastCapture: null, isLoadingGame: false, needsResync: false });
+        lastMove: null, lastCapture: null, isLoadingGame: false, needsResync: false,
+        hintView: null, hintLevel: 0, hintErrorMessage: null });
     } catch (error) {
       if (this.current(generation)) this.publish({ isLoadingGame: false,
         errorMessage: messageForApiError(error) });
@@ -117,7 +125,7 @@ export class RemoteGameController {
       this.publish({ gameId: game.game_id, gameVersion: game.version ?? null,
         gameState: game.state,
         lastMove: null, lastCapture: null, notice: null, isLoadingGame: false,
-        needsResync: false });
+        needsResync: false, hintView: null, hintLevel: 0, hintErrorMessage: null });
     } catch (error) {
       if (this.current(generation)) this.publish({ isLoadingGame: false,
         errorMessage: messageForApiError(error) });
@@ -207,6 +215,50 @@ export class RemoteGameController {
         this.publish({ selectedNode: null, legalTargets: [],
           errorMessage: messageForApiError(error) });
       }
+    }
+  }
+
+  async requestHint(): Promise<void> {
+    if (this.disposed || this.state.isLoadingGame || this.state.isSubmittingMove ||
+        this.state.needsResync || !this.state.gameState ||
+        this.state.gameState.game_status !== 'PLAYING' || this.state.isHintLoading) return;
+    const level = Math.min(3, this.state.hintLevel + 1) as 1 | 2 | 3;
+    const state = this.state.gameState;
+    const generation = this.requestGeneration;
+    this.publish({ isHintLoading: true, hintErrorMessage: null, selectedNode: null,
+      legalTargets: [], isLoadingLegalMoves: false });
+    try {
+      const analysis = analyzePosition(state, { maxDepth: 2, timeLimitMs: 1000, now: () => Date.now() });
+      if (!this.current(generation) || this.state.gameState !== state) return;
+      this.publish({ hintView: buildHintFromAnalysis(analysis, level), hintLevel: level });
+    } catch {
+      if (!this.current(generation)) return;
+      this.publish({ hintErrorMessage: '提示暂时不可用' });
+    } finally {
+      if (this.current(generation)) this.publish({ isHintLoading: false });
+    }
+  }
+
+  async resign(): Promise<void> {
+    if (this.disposed || this.state.isLoadingGame || this.state.isSubmittingMove ||
+        !this.state.gameId || this.state.gameState?.game_status === 'FINISHED') return;
+    const gameId = this.state.gameId;
+    const resigning = this.state.gameState!.current_player;
+    const generation = this.requestGeneration;
+    this.legalGeneration++;
+    this.publish({ isSubmittingMove: true, errorMessage: null, notice: null,
+      selectedNode: null, legalTargets: [], isLoadingLegalMoves: false });
+    try {
+      const game = await this.api.resign(gameId, { resigning_player: resigning });
+      if (!this.current(generation) || this.state.gameId !== gameId) return;
+      this.publish({ gameState: game.state, gameVersion: game.version ?? null,
+        selectedNode: null, legalTargets: [], hintView: null, hintLevel: 0,
+        notice: `玩家 ${resigning} 认输，本局结束` });
+    } catch (error) {
+      if (!this.current(generation)) return;
+      this.publish({ errorMessage: messageForApiError(error) });
+    } finally {
+      if (this.current(generation)) this.publish({ isSubmittingMove: false });
     }
   }
 

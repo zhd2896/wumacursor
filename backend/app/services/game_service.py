@@ -9,9 +9,12 @@ from backend.app.engine_adapter.node_worker import NodeEngineAdapter
 from backend.app.schemas.game import (
     AiMoveRequest, AiMoveResponse, AnalyzeResponse, CreateGameRequest, GameResponse,
     LegalMovesResponse, Move, MoveRequest, MoveResponse, GameState, GameReview,
-    MoveReview, ReviewConfig,
+    MoveReview, ResignRequest, ReviewConfig,
 )
 from backend.app.services.game_store import GameStore
+
+
+_AI_LEVEL_BUDGETS = {"BEGINNER": (2, 500), "STANDARD": (4, 1000), "ADVANCED": (6, 3000)}
 
 
 class GameService:
@@ -20,11 +23,25 @@ class GameService:
         self.store = store
         self.settings = settings
 
+    def _ai_search_budget(self, ai_level: str | None) -> tuple[int, int]:
+        level = ai_level or "STANDARD"
+        depth, budget = _AI_LEVEL_BUDGETS.get(level, _AI_LEVEL_BUDGETS["STANDARD"])
+        if level == "STANDARD":
+            return self.settings.ai_default_max_depth, self.settings.ai_default_time_limit_ms
+        return depth, budget
+
+    @staticmethod
+    def _finish_by_resign(state: GameState, resigning_player: str) -> GameState:
+        winner = "B" if resigning_player == "A" else "A"
+        return state.model_copy(update={
+            "game_status": "FINISHED", "winner": winner, "winner_reason": "RESIGN",
+        })
+
     async def create(self, request: CreateGameRequest, user_id: str | None = None) -> GameResponse:
         if request.mode == "LOCAL" and (request.ai_player is not None or request.ai_level is not None):
             raise ApiError("INVALID_REQUEST", "AI options require AI mode")
         ai_player = (request.ai_player or "B") if request.mode == "AI" else None
-        ai_level = "STANDARD" if request.mode == "AI" else None
+        ai_level = (request.ai_level or "STANDARD") if request.mode == "AI" else None
         state = await self.adapter.initialize(request.first_player)
         game_id = await self.store.create(state, request.mode, ai_player, ai_level, user_id)
         return GameResponse(game_id=game_id, version=0, state=state, mode=request.mode,
@@ -81,8 +98,7 @@ class GameService:
                 raise ApiError("AI_MODE_REQUIRED", "This game has no AI player")
             if snapshot.state.current_player != snapshot.ai_player:
                 raise ApiError("NOT_AI_TURN", "It is the human turn")
-            depth = self.settings.ai_default_max_depth
-            budget = self.settings.ai_default_time_limit_ms
+            depth, budget = self._ai_search_budget(snapshot.ai_level)
             search, turn = await self.adapter.ai_move(snapshot.state, depth, budget)
             await self.store.commit_turn(game_id, snapshot.version, turn, "AI", search)
             return AiMoveResponse(search=search, turn=turn)
@@ -100,6 +116,29 @@ class GameService:
             moves = await self.store.list_moves(game_id)
             steps = self._undo_steps(snapshot, moves)
             await self.store.revert_moves(game_id, snapshot.version, steps)
+            updated = await self.store.get_snapshot(game_id)
+            return GameResponse(game_id=game_id, version=updated.version, state=updated.state,
+                                mode=updated.mode, human_player=self._human(updated.ai_player),
+                                ai_player=updated.ai_player, ai_level=updated.ai_level)
+
+    async def resign(self, game_id: str, request: ResignRequest) -> GameResponse:
+        lock = await self.store.lock_for(game_id)
+        async with lock:
+            snapshot = await self.store.get_snapshot(game_id)
+            if snapshot.mode == "REMOTE":
+                raise ApiError("REMOTE_ACTION_REQUIRED", "Use the remote room endpoint")
+            if snapshot.state.game_status == "FINISHED":
+                raise ApiError("GAME_ALREADY_FINISHED", "Game already finished")
+            if snapshot.mode == "AI":
+                if snapshot.ai_player is None:
+                    raise ApiError("AI_MODE_REQUIRED", "This game has no AI player")
+                resigning = self._human(snapshot.ai_player)
+            else:
+                if request.resigning_player is None:
+                    raise ApiError("INVALID_REQUEST", "resigning_player is required")
+                resigning = request.resigning_player
+            new_state = self._finish_by_resign(snapshot.state, resigning)
+            await self.store.commit_resign(game_id, snapshot.version, new_state)
             updated = await self.store.get_snapshot(game_id)
             return GameResponse(game_id=game_id, version=updated.version, state=updated.state,
                                 mode=updated.mode, human_player=self._human(updated.ai_player),

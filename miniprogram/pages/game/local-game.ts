@@ -1,4 +1,4 @@
-import { NODE_IDS, RuleEngine } from '../../domain/index';
+import { NODE_IDS, RuleEngine, finishGameByResign } from '../../domain/index';
 import type { GameState, Move, NodeId, Player, TurnResult } from '../../domain/index';
 import type { BoardState as BoardView } from '../../types/domain';
 import { mapGameStateToView } from './game-state-mapper';
@@ -29,6 +29,12 @@ export function createLocalGameSession(firstPlayer: Player = 'A'): LocalGameSess
     legalDestinations: [],
     lastMove: null,
   };
+}
+
+export function resignLocalGame(session: LocalGameSession, resigningPlayer: Player): LocalGameSession | null {
+  if (session.gameState.game_status === 'FINISHED') return null;
+  return { ...session, gameState: finishGameByResign(session.gameState, resigningPlayer),
+    selectedNode: null, legalDestinations: [] };
 }
 
 export function undoLocalGame(session: LocalGameSession): LocalGameSession | null {

@@ -68,6 +68,37 @@ def test_undo_ai_game_reverts_pending_human_move_before_ai_responds(client: Test
     assert client.portal.call(client.app.state.store.list_moves, game_id) == []
 
 
+def test_resign_local_game_finishes_with_resign_reason(client: TestClient):
+    game_id, _ = create_game(client)
+    move = client.post(f"/api/v1/game/{game_id}/move",
+                       json={"from_node": "P01", "to_node": "P02"})
+    assert move.status_code == 200, move.text
+    resigned = client.post(f"/api/v1/game/{game_id}/resign",
+                           json={"resigning_player": "B"})
+    assert resigned.status_code == 200, resigned.text
+    payload = resigned.json()["data"]
+    assert payload["state"]["game_status"] == "FINISHED"
+    assert payload["state"]["winner"] == "A"
+    assert payload["state"]["winner_reason"] == "RESIGN"
+    assert len(client.portal.call(client.app.state.store.list_moves, game_id)) == 1
+
+
+def test_resign_ai_game_records_human_loss(client: TestClient):
+    game_id, _ = create_game(client, mode="AI", ai_player="B")
+    resigned = client.post(f"/api/v1/game/{game_id}/resign", json={})
+    assert resigned.status_code == 200, resigned.text
+    payload = resigned.json()["data"]
+    assert payload["state"]["winner"] == "B"
+    assert payload["state"]["winner_reason"] == "RESIGN"
+
+
+def test_create_ai_game_accepts_beginner_level(client: TestClient):
+    created = client.post("/api/v1/game", json={"mode": "AI", "first_player": "A",
+                                                "ai_player": "B", "ai_level": "BEGINNER"})
+    assert created.status_code == 200, created.text
+    assert created.json()["data"]["ai_level"] == "BEGINNER"
+
+
 def test_undo_rejects_empty_board(client: TestClient):
     game_id, _ = create_game(client)
     denied = client.post(f"/api/v1/game/{game_id}/undo")
