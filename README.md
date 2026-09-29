@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 弈智五马：启动与开发手册
 
 微信原生小程序（TypeScript）+ FastAPI + MySQL 的五马棋项目。棋规和 AI 搜索位于 `miniprogram/domain/`、`miniprogram/ai/`；后端通过 Node worker 调用同一引擎，并将联网棋局、复盘、教练提示和训练记录保存到 MySQL。
@@ -166,3 +167,6 @@ docker compose -f backend/docker-compose.mysql.yml down
 | `docs/`、`results/` | 阶段说明与基准实验结果。 |
 
 后端接口、数据存储及复盘说明见 [后端文档](backend/README.md)。
+=======
+# wumacursor
+>>>>>>> b2428e73bce704755dda60b5fac64160029f748b
